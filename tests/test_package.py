@@ -427,6 +427,24 @@ def test_validate_cypher_rejects_mutation_and_unbounded_query() -> None:
             raise AssertionError("Expected Cypher validation error")
 
 
+def test_validate_cypher_rejects_invalid_relationship_endpoints() -> None:
+    schema = {
+        "nodes": {"Port": [], "Country": [], "Facility": []},
+        "relationships": [{"source": "Facility", "type": "LOCATED_IN", "target": "Country"}],
+    }
+
+    try:
+        validate_cypher(
+            "MATCH (port:Port)-[:LOCATED_IN]->(country:Country) "
+            "RETURN port LIMIT 10",
+            schema,
+        )
+    except ValueError as error:
+        assert "does not connect" in str(error)
+    else:
+        raise AssertionError("Expected invalid relationship endpoint error")
+
+
 def test_answer_question_validates_and_executes_supported_plan() -> None:
     schema = {"nodes": {"Product": ["product_name"]}, "relationships": []}
     planner = FakeQueryPlanner(
@@ -457,7 +475,7 @@ def test_answer_question_validates_and_executes_supported_plan() -> None:
 
     assert response["status"] == "supported"
     assert response["rows"] == [{"product": "Lithium Carbonate"}]
-    assert driver.cypher.endswith("LIMIT 10")
+    assert driver.cypher.endswith("LIMIT 50")
 
 
 def test_answer_question_sends_rows_to_grounded_explanation_planner() -> None:

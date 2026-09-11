@@ -31,6 +31,10 @@ Return JSON only with this shape:
 }
 
 Use only labels, properties, and relationship patterns from the supplied schema.
+Use relationships only with the exact source and target labels shown in the
+schema; do not infer a relationship merely because two entities have related
+properties. If the requested fact is stored as a node property, query that
+property directly instead of inventing a relationship.
 Known entity values are helpful examples, not an exhaustive catalog. If a user
 mentions a value that is not listed, still generate a parameterized query when
 the requested label and property exist; Neo4j should determine whether that
@@ -58,7 +62,9 @@ missing, return clarification_needed. For dependency or value-chain questions,
 return paths or graph entities in addition to scalar summaries so the client
 can render a graph. When a query traverses a relationship, the RETURN clause
 must include a path variable or node/relationship variables, never only scalar
-properties. Hypothetical questions such as "what if", "goes offline", or
+properties. For questions asking about properties of graph entities, return the
+entity variable as well as the requested scalar property so the client can
+visualize the matching nodes. Hypothetical questions such as "what if", "goes offline", or
 "is closed" are supported when the graph can trace the affected dependencies;
 interpret the scenario as an impact analysis, not as a claim that the event is
 stored in the database. Conversational framing such as "let's say" does not

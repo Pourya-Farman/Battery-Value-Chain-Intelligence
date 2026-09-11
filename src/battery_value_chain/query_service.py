@@ -194,6 +194,37 @@ def _graph_value(value: Any, nodes: dict[str, dict[str, Any]], relationships: di
         }
         return node_id
     if isinstance(value, dict):
+        entity_keys = (
+            ("Company", "company_id"),
+            ("Facility", "facility_id"),
+            ("Product", "product_id"),
+            ("Country", "country_code"),
+            ("Port", "port_code"),
+            ("Shipment", "shipment_id"),
+        )
+        entity_type = next(
+            (
+                (label, key)
+                for label, key in entity_keys
+                if key in value
+                and len(value) > 1
+                and (
+                    label != "Country"
+                    or "country_name" in value
+                    or "region" in value
+                )
+            ),
+            None,
+        )
+        if entity_type is not None:
+            label, id_key = entity_type
+            node_id = str(value[id_key])
+            nodes[node_id] = {
+                "id": node_id,
+                "labels": [label],
+                "properties": _json_value(value),
+            }
+            return node_id
         return {str(key): _graph_value(item, nodes, relationships) for key, item in value.items()}
     return value
 
@@ -205,6 +236,21 @@ def _records_to_graph(result: Any) -> dict[str, list[dict[str, Any]]]:
         data = record.data() if hasattr(record, "data") else dict(record)
         _graph_value(data, nodes, relationships)
     return {"nodes": list(nodes.values()), "relationships": list(relationships.values())}
+
+
+def _graph_query_for_scalar_query(cypher: str) -> str | None:
+    """Turn a simple entity-property query into a graph-returning companion query."""
+    match = re.search(r"\(([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)\)", cypher)
+    if not match or not re.search(r"\bRETURN\b", cypher, re.IGNORECASE):
+        return None
+    variable = match.group(1)
+    return re.sub(
+        r"\bRETURN\b.*",
+        f"RETURN {variable} LIMIT 50",
+        cypher,
+        count=1,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
 
 
 def answer_question(
@@ -253,10 +299,77 @@ def answer_question(
 
     if plan.cypher is None or plan.parameters is None:
         raise ValueError("Supported plan must include Cypher and parameters")
-    validate_cypher(plan.cypher, schema)
+    try:
+        validate_cypher(plan.cypher, schema)
+    except ValueError as error:
+        retry_messages = [
+            *(history or []),
+            {
+                "role": "system",
+                "content": (
+                    f"The previous generated query was rejected: {error}. "
+                    "Regenerate using only exact schema relationship endpoint "
+                    "patterns, or query the relevant node property directly. "
+                    "Do not reuse the rejected relationship pattern."
+                ),
+            },
+        ]
+        retry_plan = None
+        retry_error = error
+        for _ in range(2):
+            candidate = planner.plan(build_query_prompt(question, schema, retry_messages))
+            if candidate.status != "supported" or not candidate.cypher or candidate.parameters is None:
+                break
+            try:
+                validate_cypher(candidate.cypher, schema)
+            except ValueError as candidate_error:
+                retry_error = candidate_error
+                retry_messages.append({
+                    "role": "system",
+                    "content": f"That query was also rejected: {candidate_error}. Generate a different query.",
+                })
+                continue
+            retry_plan = candidate
+            break
+        if retry_plan is None:
+            response["status"] = "unsupported"
+            response["reason"] = f"I could not generate a schema-valid query: {retry_error}"
+            return response
+        plan = retry_plan
+        response.update(asdict(plan))
     result = driver.execute_query(plan.cypher, **plan.parameters)
+    if not result.records:
+        retry_plan = planner.plan(
+            build_query_prompt(
+                question,
+                schema,
+                [
+                    *(history or []),
+                    {
+                        "role": "system",
+                        "content": (
+                            "The previous query was schema-valid but returned zero rows. "
+                            "Reconsider the data model: query node properties directly "
+                            "when the requested fact is stored on a node, and use only "
+                            "relationship directions and endpoints shown in the schema. "
+                            "Return a corrected bounded query."
+                        ),
+                    },
+                ],
+            )
+        )
+        if retry_plan.status == "supported" and retry_plan.cypher and retry_plan.parameters is not None:
+            validate_cypher(retry_plan.cypher, schema)
+            plan = retry_plan
+            response.update(asdict(plan))
+            result = driver.execute_query(plan.cypher, **plan.parameters)
     response["rows"] = _records_to_rows(result)
     response["graph"] = _records_to_graph(result)
+    if response["rows"] and not response["graph"]["nodes"]:
+        graph_query = _graph_query_for_scalar_query(plan.cypher)
+        if graph_query is not None:
+            graph_result = driver.execute_query(graph_query, **plan.parameters)
+            response["graph"] = _records_to_graph(graph_result)
     if explanation_planner is not None:
         explanation_messages = build_explanation_prompt(
             question, plan.cypher, plan.parameters, response["rows"], history

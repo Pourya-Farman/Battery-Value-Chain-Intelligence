@@ -58,3 +58,25 @@ def validate_cypher(cypher: str, schema: dict[str, Any]) -> None:
     unknown_relationships = sorted(relationship_types - relationships)
     if unknown_relationships:
         raise ValueError(f"Unknown relationship types: {', '.join(unknown_relationships)}")
+
+    valid_patterns = {
+        (item["source"], item["type"], item["target"])
+        for item in schema.get("relationships", [])
+        if item.get("source") and item.get("target")
+    }
+    if not valid_patterns:
+        return
+    for match in re.finditer(
+        r"\(([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)\)[^-\n]*"
+        r"(?:<-|-)\[:([A-Za-z_]\w*)[^\]]*\](?:-|>)[^\n]*"
+        r"\(([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)\)",
+        normalized,
+    ):
+        left_variable, left_label, relationship_type, right_variable, right_label = match.groups()
+        forward_pattern = (left_label, relationship_type, right_label)
+        reverse_pattern = (right_label, relationship_type, left_label)
+        if forward_pattern not in valid_patterns and reverse_pattern not in valid_patterns:
+            raise ValueError(
+                f"Relationship {relationship_type} does not connect "
+                f"{left_label} and {right_label} in the schema"
+            )

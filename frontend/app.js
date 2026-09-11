@@ -9,7 +9,10 @@ const graphStyle = [
 function renderGraph(data, fullNetwork = false) {
   const displayLabel = (node) => {
     const properties = node.properties || {};
-    return properties.company_name
+    if (properties.port_name && properties.country_code) {
+      return `${properties.port_name} · ${properties.country_code}`;
+    }
+    const primary = properties.company_name
       || properties.facility_name
       || properties.product_name
       || properties.shipment_id
@@ -22,6 +25,14 @@ function renderGraph(data, fullNetwork = false) {
       || properties.country_code
       || node.labels?.[0]
       || 'Entity';
+    const secondary = properties.status
+      || properties.facility_type
+      || properties.product_type
+      || properties.company_type
+      || properties.region;
+    return secondary && !primary.includes(secondary)
+      ? `${primary} · ${secondary}`
+      : primary;
   };
   const elements = [
     ...(data.nodes || []).map((node) => ({ data: { id: node.id, label: displayLabel(node) } })),
