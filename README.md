@@ -414,6 +414,3 @@ Render provides `$PORT` automatically. Do not upload `.env`; configure secrets i
 - The full graph is designed for this prototype-sized dataset, not a large production network.
 - Authentication, rate limiting, audit storage, and a dedicated read-only Aura user should be added before public production use.
 
-## License
-
-This project is intended to use the MIT License. Add the standard `LICENSE` file before describing the repository as formally licensed open source.

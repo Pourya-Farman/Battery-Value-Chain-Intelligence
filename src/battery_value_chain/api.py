@@ -62,6 +62,11 @@ def create_app(
     def get_schema() -> dict[str, Any]:
         return current_schema
 
+    @app.get("/readme", include_in_schema=False)
+    def get_readme() -> dict[str, str]:
+        readme_path = project_root / "README.md"
+        return {"content": readme_path.read_text(encoding="utf-8")}
+
     @app.get("/graph/full")
     def get_full_graph() -> dict[str, Any]:
         if driver is None:

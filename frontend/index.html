@@ -17,6 +17,13 @@
         <div class="live-status"><span></span> Aura connected</div>
       </header>
 
+      <nav class="view-tabs" aria-label="Application views">
+        <button class="view-tab active" data-view="explorer" type="button">Graph explorer</button>
+        <button class="view-tab" data-view="readme" type="button">Project README</button>
+        <a class="github-link" href="https://github.com/Pourya-Farman/Battery-Value-Chain-Intelligence" target="_blank" rel="noreferrer">View on GitHub ↗</a>
+      </nav>
+
+      <div id="explorer-view" class="app-view active">
       <section class="hero">
         <div>
           <p class="eyebrow">Battery supply-chain graph</p>
@@ -79,8 +86,21 @@
         <div class="panel-heading"><h3>Evidence rows</h3><span id="row-count">0 rows</span></div>
         <div class="table-wrap"><table><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div>
       </section>
+      </div>
+
+      <section id="readme-view" class="app-view readme-view" hidden>
+        <div class="readme-toolbar">
+          <div>
+            <p class="eyebrow">Project documentation</p>
+            <h2>Battery Value Chain Intelligence</h2>
+          </div>
+          <a class="secondary-link" href="https://github.com/Pourya-Farman/Battery-Value-Chain-Intelligence/blob/main/README.md" target="_blank" rel="noreferrer">Open on GitHub ↗</a>
+        </div>
+        <article id="readme-content" class="readme-content">Loading README...</article>
+      </section>
     </main>
     <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>

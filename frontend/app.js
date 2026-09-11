@@ -1,6 +1,26 @@
 let graph;
 const chatHistory = [];
 
+const viewTabs = document.querySelectorAll('.view-tab');
+viewTabs.forEach((tab) => {
+  tab.addEventListener('click', async () => {
+    viewTabs.forEach((item) => item.classList.toggle('active', item === tab));
+    document.querySelector('#explorer-view').classList.toggle('active', tab.dataset.view === 'explorer');
+    document.querySelector('#readme-view').hidden = tab.dataset.view !== 'readme';
+    document.querySelector('#readme-view').classList.toggle('active', tab.dataset.view === 'readme');
+    if (tab.dataset.view === 'readme') await loadReadme();
+  });
+});
+
+let readmeLoaded = false;
+async function loadReadme() {
+  if (readmeLoaded) return;
+  const response = await fetch('/readme');
+  const payload = await readResponse(response);
+  document.querySelector('#readme-content').innerHTML = marked.parse(payload.content);
+  readmeLoaded = true;
+}
+
 const graphStyle = [
   { selector: 'node', style: { 'background-color': '#58d3bd', 'label': 'data(label)', 'color': '#e8f0ef', 'font-size': 9, 'text-wrap': 'wrap', 'text-max-width': 86, 'text-valign': 'bottom', 'text-margin-y': 7, 'width': 34, 'height': 34 } },
   { selector: 'edge', style: { 'line-color': '#789695', 'target-arrow-color': '#789695', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': 7, 'color': '#91a8a7', 'text-background-color': '#0b1b1b', 'text-background-opacity': 1, 'text-background-padding': 2 } }
