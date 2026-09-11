@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Battery Value Chain Intelligence</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-mark">BV</div>
+        <div>
+          <p class="eyebrow">Graph intelligence workspace</p>
+          <h1>Battery Value Chain</h1>
+        </div>
+        <div class="live-status"><span></span> Aura connected</div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Battery supply-chain graph</p>
+          <h2>Explore how materials, companies, facilities, and shipments connect.</h2>
+          <p class="hero-copy">This read-only prototype combines synthetic Bronze/Silver data with Neo4j Aura. Ask questions in plain language, inspect the generated Cypher, and trace the evidence visually.</p>
+        </div>
+        <div class="hero-stat"><strong>28</strong><span>entities loaded</span></div>
+        <div class="hero-stat"><strong>33</strong><span>relationships checked</span></div>
+      </section>
+
+      <section class="workspace">
+        <aside class="chat-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Conversation</p>
+              <h3>Graph analyst</h3>
+            </div>
+            <span class="read-only">READ ONLY</span>
+          </div>
+          <div id="conversation" class="conversation">
+            <div class="message assistant">Ask about suppliers, products, facilities, or upstream dependencies.</div>
+          </div>
+          <form id="chat-form" class="composer">
+            <textarea id="question" rows="3" placeholder="Which products depend on Lithium Carbonate?"></textarea>
+            <div class="composer-footer">
+              <span>Cypher is validated before execution</span>
+              <button type="submit">Explore <span aria-hidden="true">↗</span></button>
+            </div>
+          </form>
+        </aside>
+
+        <section class="graph-panel">
+          <div class="panel-heading graph-heading">
+            <div>
+              <p class="eyebrow">Live result</p>
+              <h3>Dependency map</h3>
+            </div>
+            <div class="graph-actions">
+              <span id="result-status" class="result-status">Full network on load</span>
+              <button id="full-graph" class="secondary-button" type="button">Show full network</button>
+            </div>
+          </div>
+          <div id="graph" class="graph-canvas" aria-label="Graph visualization"></div>
+          <div id="empty-graph" class="empty-graph">Your result graph will appear here.</div>
+        </section>
+      </section>
+
+      <section class="evidence-grid">
+        <article class="evidence-panel answer-panel">
+          <div class="panel-heading"><h3>Analyst readout</h3></div>
+          <p id="answer">Run a question to receive a grounded explanation.</p>
+        </article>
+        <article class="evidence-panel query-panel">
+          <div class="panel-heading"><h3>Generated Cypher</h3><span class="query-badge">validated</span></div>
+          <pre id="cypher">-- no query yet</pre>
+        </article>
+      </section>
+
+      <section class="results-panel">
+        <div class="panel-heading"><h3>Evidence rows</h3><span id="row-count">0 rows</span></div>
+        <div class="table-wrap"><table><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div>
+      </section>
+    </main>
+    <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

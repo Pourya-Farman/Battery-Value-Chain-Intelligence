@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-11T01:19:01.752865+00:00",
+  "nodes": {
+    "Company": [
+      "company_id",
+      "company_name",
+      "company_type",
+      "country_code",
+      "source_company_id"
+    ],
+    "Country": [
+      "country_code",
+      "country_name",
+      "region"
+    ],
+    "Facility": [
+      "country_code",
+      "facility_id",
+      "facility_name",
+      "facility_type",
+      "source_company_id",
+      "source_facility_id"
+    ],
+    "Port": [
+      "country_code",
+      "port_code",
+      "port_name",
+      "port_type"
+    ],
+    "Product": [
+      "product_id",
+      "product_name",
+      "product_type",
+      "source_owner_company_id",
+      "source_product_id"
+    ],
+    "Shipment": [
+      "planned_arrival",
+      "shipment_id",
+      "status"
+    ]
+  },
+  "relationships": [
+    {
+      "source": "Company",
+      "type": "OWNS",
+      "target": "Facility"
+    },
+    {
+      "source": "Company",
+      "type": "PRODUCES",
+      "target": "Product"
+    },
+    {
+      "source": "Company",
+      "type": "SUPPLIES",
+      "target": "Product"
+    },
+    {
+      "source": "Facility",
+      "type": "LOCATED_IN",
+      "target": "Country"
+    },
+    {
+      "source": "Product",
+      "type": "REQUIRES",
+      "target": "Product"
+    },
+    {
+      "source": "Shipment",
+      "type": "CARRIES",
+      "target": "Product"
+    },
+    {
+      "source": "Shipment",
+      "type": "DESTINED_FOR",
+      "target": "Port"
+    },
+    {
+      "source": "Shipment",
+      "type": "ORIGINATES_AT",
+      "target": "Port"
+    },
+    {
+      "source": "Shipment",
+      "type": "RECEIVED_AT",
+      "target": "Facility"
+    },
+    {
+      "source": "Shipment",
+      "type": "SUPPLIED_BY",
+      "target": "Company"
+    }
+  ],
+  "known_values": {
+    "Company": {
+      "company_id": [
+        "COMP-001",
+        "COMP-002",
+        "COMP-003",
+        "COMP-004",
+        "COMP-005",
+        "COMP-006"
+      ],
+      "company_name": [
+        "Electra Motors",
+        "Helios Battery Systems",
+        "NorthStar Lithium Ltd",
+        "Northstar Lithium",
+        "Pacific Nickel Co",
+        "Volta Cathode Materials"
+      ],
+      "company_type": [
+        "battery_manufacturer",
+        "component_manufacturer",
+        "ev_manufacturer",
+        "processor",
+        "raw_material_supplier"
+      ],
+      "country_code": [
+        "AU",
+        "DE",
+        "ID",
+        "KR"
+      ],
+      "source_company_id": [
+        "ERP-C-001",
+        "ERP-C-002",
+        "ERP-C-003",
+        "ERP-C-004",
+        "ERP-C-005",
+        "ERP-C-006"
+      ]
+    },
+    "Country": {
+      "country_code": [
+        "AU",
+        "DE",
+        "ID",
+        "KR"
+      ],
+      "country_name": [
+        "Australia",
+        "Germany",
+        "Indonesia",
+        "South Korea"
+      ],
+      "region": [
+        "Asia",
+        "Europe",
+        "Oceania"
+      ]
+    },
+    "Facility": {
+      "country_code": [
+        "AU",
+        "DE",
+        "ID",
+        "KR"
+      ],
+      "facility_id": [
+        "FAC-001",
+        "FAC-002",
+        "FAC-003",
+        "FAC-004",
+        "FAC-005",
+        "FAC-006"
+      ],
+      "facility_name": [
+        "Busan Cathode Plant",
+        "North Harbor Cell Factory",
+        "Red Ridge Mine",
+        "Red Ridge Processing Plant",
+        "Surabaya Nickel Refinery",
+        "Wolfsburg Vehicle Plant"
+      ],
+      "facility_type": [
+        "battery_factory",
+        "cathode_plant",
+        "ev_factory",
+        "mine",
+        "processor",
+        "refinery"
+      ],
+      "source_company_id": [
+        "ERP-C-001",
+        "ERP-C-002",
+        "ERP-C-003",
+        "ERP-C-004",
+        "ERP-C-005",
+        "ERP-C-006"
+      ],
+      "source_facility_id": [
+        "ERP-F-001",
+        "ERP-F-002",
+        "ERP-F-003",
+        "ERP-F-004",
+        "ERP-F-005",
+        "ERP-F-006"
+      ]
+    },
+    "Port": {
+      "country_code": [
+        "AU",
+        "DE",
+        "ID",
+        "KR"
+      ],
+      "port_code": [
+        "PORT-AU-FRE",
+        "PORT-DE-HAM",
+        "PORT-ID-SUB",
+        "PORT-KR-BUS"
+      ],
+      "port_name": [
+        "Busan New Port",
+        "Hamburg Gateway",
+        "Port Fremantle",
+        "Tanjung Perak"
+      ],
+      "port_type": [
+        "seaport"
+      ]
+    },
+    "Product": {
+      "product_id": [
+        "PROD-001",
+        "PROD-002",
+        "PROD-003",
+        "PROD-004",
+        "PROD-005",
+        "PROD-006",
+        "PROD-007",
+        "PROD-008"
+      ],
+      "product_name": [
+        "Cobalt Sulphate",
+        "Electra E2 EV",
+        "Graphite Anode",
+        "Lithium Carbonate",
+        "NMC Cathode Powder",
+        "Nickel Sulphate",
+        "Spodumene Concentrate",
+        "VoltEdge 90 Battery Pack"
+      ],
+      "product_type": [
+        "battery_pack",
+        "cathode_material",
+        "external_material",
+        "processed_material",
+        "raw_material",
+        "vehicle"
+      ],
+      "source_owner_company_id": [
+        "",
+        "ERP-C-001",
+        "ERP-C-002",
+        "ERP-C-003",
+        "ERP-C-004",
+        "ERP-C-005"
+      ],
+      "source_product_id": [
+        "",
+        "ERP-P-001",
+        "ERP-P-002",
+        "ERP-P-003",
+        "ERP-P-004",
+        "ERP-P-005"
+      ]
+    },
+    "Shipment": {
+      "planned_arrival": [
+        "2026-09-18",
+        "2026-09-20",
+        "2026-09-21",
+        "2026-09-25",
+        "2026-09-27"
+      ],
+      "shipment_id": [
+        "SHIP-0001",
+        "SHIP-0002",
+        "SHIP-0003",
+        "SHIP-0004",
+        "SHIP-0005"
+      ],
+      "status": [
+        "booked",
+        "in_transit",
+        "planned"
+      ]
+    }
+  }
+}

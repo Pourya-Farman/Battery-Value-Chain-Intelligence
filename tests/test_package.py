@@ -8,6 +8,24 @@ from battery_value_chain.silver.procurement import build_procurement
 from battery_value_chain.silver.logistics import build_logistics
 from battery_value_chain.silver.core_relationships import build_core_relationships
 from battery_value_chain.silver.validate import validate_silver
+from battery_value_chain.neo4j_connection import create_driver
+import battery_value_chain.neo4j_connection as neo4j_connection
+from battery_value_chain.neo4j_loader import _load_direct_relationships
+from battery_value_chain.schema_discovery import discover_schema
+from battery_value_chain.llm_query import build_query_prompt, parse_query_plan
+from battery_value_chain.cypher_validator import validate_cypher
+from battery_value_chain.query_service import FakeQueryPlanner, answer_question
+from battery_value_chain.llm_query import QueryPlan
+from battery_value_chain.llm_query import QueryPlan, build_explanation_prompt
+from battery_value_chain.query_service import (
+    FakeExplanationPlanner,
+    FakeGeneralChatPlanner,
+    FakeQueryPlanner,
+    answer_question,
+)
+from battery_value_chain.api import create_app
+from fastapi.testclient import TestClient
+from battery_value_chain.openai_planner import OpenAIExplanationPlanner, OpenAIQueryPlanner
 
 
 def test_package_version() -> None:
@@ -243,3 +261,383 @@ def test_validate_silver_rejects_orphaned_relationship(tmp_path) -> None:
         assert "orphaned relationship" in str(error)
     else:
         raise AssertionError("Expected orphaned relationship validation error")
+
+
+def test_create_driver_requires_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(neo4j_connection, "load_dotenv", lambda: None)
+    monkeypatch.delenv("NEO4J_URI", raising=False)
+    monkeypatch.delenv("NEO4J_USERNAME", raising=False)
+    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
+
+    try:
+        create_driver()
+    except RuntimeError as error:
+        assert "NEO4J_URI" in str(error)
+    else:
+        raise AssertionError("Expected missing Neo4j configuration error")
+
+
+def test_loader_uses_entity_specific_relationship_keys(tmp_path) -> None:
+    relationship_path = tmp_path / "core_relationships.csv"
+    relationship_path.write_text(
+        "relationship_type,source_id,target_id,source_reference\n"
+        "OWNS,COMP-001,FAC-001,ERP-F-001\n"
+        "LOCATED_IN,FAC-001,AU,ERP-F-001\n",
+        encoding="utf-8",
+    )
+
+    class FakeDriver:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def execute_query(self, query: str, **parameters: object) -> None:
+            self.queries.append(query)
+
+    driver = FakeDriver()
+
+    assert _load_direct_relationships(driver, relationship_path) == 2
+    assert "Company {company_id: row.source_id}" in driver.queries[0]
+    assert "Facility {facility_id: row.target_id}" in driver.queries[0]
+    assert "Country {country_code: row.target_id}" in driver.queries[1]
+
+
+def test_discover_schema_normalizes_neo4j_metadata() -> None:
+    class FakeRecord(dict):
+        pass
+
+    class FakeResult:
+        def __init__(self, records: list[FakeRecord]) -> None:
+            self.records = records
+
+    class FakeDriver:
+        def execute_query(self, query: str) -> FakeResult:
+            if "nodeTypeProperties" in query:
+                return FakeResult(
+                    [
+                        FakeRecord(nodeType=":Product", propertyName="product_id"),
+                        FakeRecord(nodeType=":Product", propertyName="product_name"),
+                        FakeRecord(nodeType=":Company", propertyName="company_id"),
+                    ]
+                )
+            if "MATCH (source)-[relationship]" in query:
+                return FakeResult(
+                    [
+                        FakeRecord(
+                            source_label="Company",
+                            relationship_type="SUPPLIES",
+                            target_label="Product",
+                        )
+                    ]
+                )
+            return FakeResult(
+                [
+                    FakeRecord(
+                        node_type="Product",
+                        property_name="product_name",
+                        values=["Lithium Carbonate"],
+                    )
+                ]
+            )
+
+    schema = discover_schema(FakeDriver())
+
+    assert schema["nodes"] == {
+        "Company": ["company_id"],
+        "Product": ["product_id", "product_name"],
+    }
+    assert schema["relationships"] == [
+        {"source": "Company", "type": "SUPPLIES", "target": "Product"}
+    ]
+    assert schema["known_values"] == {"Product": {"product_name": ["Lithium Carbonate"]}}
+
+
+def test_build_query_prompt_includes_current_schema() -> None:
+    messages = build_query_prompt(
+        "Which products depend on Lithium Carbonate?",
+        {"nodes": {"Product": ["product_name"]}, "relationships": []},
+    )
+
+    assert messages[0]["role"] == "system"
+    assert "Product" in messages[1]["content"]
+    assert "Lithium Carbonate" in messages[1]["content"]
+    assert "not an exhaustive catalog" in messages[0]["content"]
+    assert "Conversational framing" in messages[0]["content"]
+
+
+def test_parse_query_plan_accepts_supported_response() -> None:
+    plan = parse_query_plan(
+        '{"status":"supported","reason":null,'
+        '"cypher":"MATCH (p:Product) RETURN p LIMIT 10",'
+        '"parameters":{},"suggestions":[]}'
+    )
+
+    assert plan.status == "supported"
+    assert plan.cypher.endswith("LIMIT 10")
+
+
+def test_parse_query_plan_rejects_cypher_for_unsupported_response() -> None:
+    try:
+        parse_query_plan(
+            '{"status":"unsupported","reason":"No data",'
+            '"cypher":"MATCH (n) RETURN n", "parameters":{}, "suggestions":[]}'
+        )
+    except ValueError as error:
+        assert "must not include Cypher" in str(error)
+    else:
+        raise AssertionError("Expected unsupported plan with Cypher to fail")
+
+
+def test_parse_query_plan_normalizes_null_optional_fields() -> None:
+    plan = parse_query_plan(
+        '{"status":"supported",'
+        '"cypher":"MATCH (f:Facility) RETURN f.facility_type LIMIT 10",'
+        '"parameters":null,"suggestions":null}'
+    )
+
+    assert plan.parameters == {}
+    assert plan.suggestions == []
+
+
+def test_validate_cypher_accepts_bounded_known_query() -> None:
+    schema = {
+        "nodes": {"Product": ["product_name"]},
+        "relationships": [{"type": "REQUIRES"}],
+    }
+
+    validate_cypher(
+        "MATCH (product:Product)-[:REQUIRES*1..5]->(dependency:Product) "
+        "RETURN product, dependency LIMIT 25",
+        schema,
+    )
+
+
+def test_validate_cypher_rejects_mutation_and_unbounded_query() -> None:
+    schema = {"nodes": {"Product": []}, "relationships": []}
+
+    for query, expected in (
+        ("MATCH (n:Product) DELETE n", "DELETE"),
+        ("MATCH (n:Product) RETURN n", "LIMIT"),
+        ("MATCH (a:Product)-[:REQUIRES*1..]->(b:Product) RETURN b LIMIT 10", "maximum depth"),
+    ):
+        try:
+            validate_cypher(query, schema)
+        except ValueError as error:
+            assert expected in str(error)
+        else:
+            raise AssertionError("Expected Cypher validation error")
+
+
+def test_answer_question_validates_and_executes_supported_plan() -> None:
+    schema = {"nodes": {"Product": ["product_name"]}, "relationships": []}
+    planner = FakeQueryPlanner(
+        QueryPlan(
+            status="supported",
+            cypher="MATCH (product:Product) RETURN product LIMIT 10",
+            parameters={},
+        )
+    )
+
+    class FakeRecord:
+        def data(self) -> dict[str, str]:
+            return {"product": "Lithium Carbonate"}
+
+    class FakeResult:
+        records = [FakeRecord()]
+
+    class FakeDriver:
+        def __init__(self) -> None:
+            self.cypher = ""
+
+        def execute_query(self, cypher: str, **parameters: object) -> FakeResult:
+            self.cypher = cypher
+            return FakeResult()
+
+    driver = FakeDriver()
+    response = answer_question("Which products exist?", schema, planner, driver)
+
+    assert response["status"] == "supported"
+    assert response["rows"] == [{"product": "Lithium Carbonate"}]
+    assert driver.cypher.endswith("LIMIT 10")
+
+
+def test_answer_question_sends_rows_to_grounded_explanation_planner() -> None:
+    schema = {"nodes": {"Product": ["product_name"]}, "relationships": []}
+    planner = FakeQueryPlanner(
+        QueryPlan(
+            status="supported",
+            cypher="MATCH (product:Product) RETURN product LIMIT 10",
+            parameters={},
+        )
+    )
+    explanation = FakeExplanationPlanner("Lithium Carbonate is in the graph.")
+
+    class FakeRecord:
+        def data(self) -> dict[str, str]:
+            return {"product": "Lithium Carbonate"}
+
+    class FakeResult:
+        records = [FakeRecord()]
+
+    class FakeDriver:
+        def execute_query(self, cypher: str, **parameters: object) -> FakeResult:
+            return FakeResult()
+
+    response = answer_question(
+        "Which products exist?", schema, planner, FakeDriver(), explanation
+    )
+
+    assert response["answer"] == "Lithium Carbonate is in the graph."
+    assert "Lithium Carbonate" in explanation.messages[1]["content"]
+
+
+def test_build_explanation_prompt_contains_database_evidence() -> None:
+    messages = build_explanation_prompt(
+        "What depends on lithium?", "MATCH (n) RETURN n LIMIT 5", {}, [{"name": "Lithium"}]
+    )
+
+    assert "What depends on lithium?" in messages[1]["content"]
+    assert "Lithium" in messages[1]["content"]
+
+
+def test_chat_endpoint_returns_orchestrated_response() -> None:
+    schema = {"nodes": {"Product": ["product_name"]}, "relationships": []}
+    planner = FakeQueryPlanner(
+        QueryPlan(
+            status="supported",
+            cypher="MATCH (product:Product) RETURN product LIMIT 10",
+            parameters={},
+        )
+    )
+    explanation = FakeExplanationPlanner("Lithium Carbonate is in the graph.")
+
+    class FakeRecord:
+        def data(self) -> dict[str, str]:
+            return {"product": "Lithium Carbonate"}
+
+    class FakeResult:
+        records = [FakeRecord()]
+
+    class FakeDriver:
+        def execute_query(self, cypher: str, **parameters: object) -> FakeResult:
+            return FakeResult()
+
+    client = TestClient(create_app(schema, planner, explanation, FakeDriver()))
+    response = client.post("/chat", json={"question": "Which products exist?"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Lithium Carbonate is in the graph."
+
+
+def test_chat_endpoint_reports_unconfigured_services() -> None:
+    client = TestClient(create_app(schema={"nodes": {}, "relationships": []}))
+
+    response = client.post("/chat", json={"question": "What exists?"})
+
+    assert response.status_code == 503
+
+
+def test_openai_query_planner_parses_json_response() -> None:
+    class FakeMessage:
+        content = '{"status":"unsupported","reason":"Not in graph","parameters":{},"suggestions":[]}'
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletions:
+        def create(self, **kwargs: object) -> object:
+            return type("Response", (), {"choices": [FakeChoice()]})()
+
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": FakeCompletions()})()})()
+    planner = OpenAIQueryPlanner(client=client, model="test-model")
+
+    plan = planner.plan(build_query_prompt("What is the weather?", {}))
+
+    assert plan.status == "unsupported"
+
+
+def test_openai_query_planner_bounds_supported_query() -> None:
+    class FakeMessage:
+        content = '{"status":"supported","cypher":"MATCH (n:Product) RETURN n","parameters":{},"suggestions":[]}'
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletions:
+        def create(self, **kwargs: object) -> object:
+            return type("Response", (), {"choices": [FakeChoice()]})()
+
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": FakeCompletions()})()})()
+    planner = OpenAIQueryPlanner(client=client, model="test-model")
+
+    plan = planner.plan([])
+
+    assert plan.cypher.endswith("LIMIT 50")
+
+
+def test_openai_explanation_planner_returns_text() -> None:
+    class FakeMessage:
+        content = "No matching data was found."
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletions:
+        def create(self, **kwargs: object) -> object:
+            return type("Response", (), {"choices": [FakeChoice()]})()
+
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": FakeCompletions()})()})()
+    planner = OpenAIExplanationPlanner(client=client, model="test-model")
+
+    assert planner.explain([]) == "No matching data was found."
+
+
+def test_answer_question_does_not_execute_unsupported_plan() -> None:
+    planner = FakeQueryPlanner(
+        QueryPlan(status="unsupported", reason="Weather is not in the graph")
+    )
+
+    class FakeDriver:
+        def execute_query(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("Unsupported plan must not reach Neo4j")
+
+    response = answer_question("What is the weather?", {}, planner, FakeDriver())
+
+    assert response["status"] == "unsupported"
+    assert response["rows"] == []
+
+
+def test_unsupported_question_can_use_scoped_general_chat() -> None:
+    planner = FakeQueryPlanner(QueryPlan(status="unsupported", reason="No contact data"))
+    general = FakeGeneralChatPlanner("Use an official port authority directory.")
+
+    class FakeDriver:
+        def execute_query(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("Out-of-scope question must not reach Neo4j")
+
+    response = answer_question(
+        "What is the phone number for Hamburg Gateway?",
+        {},
+        planner,
+        FakeDriver(),
+        general_chat_planner=general,
+    )
+
+    assert response["status"] == "general_answer"
+    assert "not generated by executing a database query" in response["answer"]
+    assert "official port authority" in response["answer"]
+
+
+def test_answer_question_handles_greeting_without_planner_or_database() -> None:
+    class ExplodingPlanner:
+        def plan(self, messages: list[dict[str, str]]) -> QueryPlan:
+            raise AssertionError("A greeting should not reach the query planner")
+
+    class ExplodingDriver:
+        def execute_query(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("A greeting should not reach Neo4j")
+
+    response = answer_question("Hi!", {}, ExplodingPlanner(), ExplodingDriver())
+
+    assert response["status"] == "conversational"
+    assert response["cypher"] is None
+    assert response["answer"].startswith("Hi.")
